@@ -6,7 +6,7 @@ import { useAuthStore } from "@/stores/auth-store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { AlertCircle, Loader2, MessageSquare, Play, User, FileText, Search } from "lucide-react"
+import { AlertCircle, Loader2, MessageSquare, Play, User, FileText, Search, Check, X } from "lucide-react"
 
 interface TranscriptSegment {
   start: number
@@ -22,6 +22,7 @@ interface Issue {
   severity: "error" | "warning" | "info"
   reason: string
   suggestion: string
+  approved?: boolean
 }
 
 interface RecordingDetail {
@@ -62,6 +63,7 @@ export default function RecordingDetailPage() {
   const [feedbackText, setFeedbackText] = useState("")
   const [feedbackLoading, setFeedbackLoading] = useState(false)
   const [feedbackMessage, setFeedbackMessage] = useState("")
+  const [approvingIndex, setApprovingIndex] = useState<number | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
 
@@ -140,6 +142,41 @@ export default function RecordingDetailPage() {
     if (videoRef.current) {
       videoRef.current.currentTime = timeMs / 1000
       videoRef.current.play()
+    }
+  }
+
+  const handleApproveIssue = async (index: number, approved: boolean) => {
+    if (!isAdmin || !data) return
+    setApprovingIndex(index)
+
+    // 楽観的更新用にバックアップ
+    const previousData = data
+
+    // 楽観的更新
+    const newIssues = [...(data.analyses?.issues_json?.issues || [])]
+    newIssues[index] = { ...newIssues[index], approved }
+    setData({
+      ...data,
+      analyses: data.analyses ? {
+        ...data.analyses,
+        issues_json: { issues: newIssues }
+      } : null
+    })
+
+    try {
+      const res = await fetch(`/api/recordings/${id}/issues/${index}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approved }),
+      })
+
+      if (!res.ok) throw new Error("更新に失敗しました")
+    } catch (error) {
+      console.error(error)
+      setData(previousData)
+      alert("問題の更新に失敗しました")
+    } finally {
+      setApprovingIndex(null)
     }
   }
 
@@ -319,11 +356,32 @@ export default function RecordingDetailPage() {
                     <p className="text-center text-muted-foreground py-8">分析結果がありません</p>
                   ) : (
                     issues.map((issue, i) => (
-                      <div key={i} className="border rounded-lg p-4 space-y-2">
+                      <div
+                        key={i}
+                        className={`border rounded-lg p-4 space-y-2 ${
+                          issue.approved === true
+                            ? "bg-green-50 border-green-200"
+                            : issue.approved === false
+                            ? "bg-gray-50 border-gray-200 opacity-60"
+                            : ""
+                        }`}
+                      >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             {getSeverityBadge(issue.severity)}
                             <span className="font-medium text-sm">{issue.rule_name}</span>
+                            {issue.approved === true && (
+                              <Badge variant="outline" className="text-green-600 border-green-600">
+                                <Check className="h-3 w-3 mr-1" />
+                                承認済み
+                              </Badge>
+                            )}
+                            {issue.approved === false && (
+                              <Badge variant="outline" className="text-gray-500">
+                                <X className="h-3 w-3 mr-1" />
+                                却下
+                              </Badge>
+                            )}
                           </div>
                           <Button
                             variant="ghost"
@@ -337,6 +395,44 @@ export default function RecordingDetailPage() {
                         </div>
                         <p className="text-sm text-muted-foreground">{issue.reason}</p>
                         <p className="text-sm text-green-600">💡 {issue.suggestion}</p>
+
+                        {/* 管理者用の承認/却下ボタン */}
+                        {isAdmin && (
+                          <div className="flex gap-2 pt-2 border-t">
+                            {issue.approved !== true && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleApproveIssue(i, true)}
+                                disabled={approvingIndex === i}
+                                className="text-green-600 border-green-300 hover:bg-green-50"
+                              >
+                                {approvingIndex === i ? (
+                                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                ) : (
+                                  <Check className="h-3 w-3 mr-1" />
+                                )}
+                                承認
+                              </Button>
+                            )}
+                            {issue.approved !== false && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleApproveIssue(i, false)}
+                                disabled={approvingIndex === i}
+                                className="text-gray-600 border-gray-300 hover:bg-gray-50"
+                              >
+                                {approvingIndex === i ? (
+                                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                ) : (
+                                  <X className="h-3 w-3 mr-1" />
+                                )}
+                                却下
+                              </Button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))
                   )}

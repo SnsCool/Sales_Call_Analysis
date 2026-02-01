@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { User, Bell, Shield, LogOut } from "lucide-react"
+import { useState, useEffect } from "react"
+import { User, Bell, Shield, LogOut, Video, Loader2, RefreshCw } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -11,10 +11,62 @@ import { useAuthStore } from "@/stores/auth-store"
 import { createClient } from "@/lib/supabase"
 import { useRouter } from "next/navigation"
 
+interface ZoomAccount {
+  id: string
+  display_name: string
+  zoom_account_id: string
+  is_active: boolean
+  last_synced_at: string | null
+}
+
 export default function SettingsPage() {
   const router = useRouter()
   const { user, logout } = useAuthStore()
   const [saving, setSaving] = useState(false)
+  const [zoomAccounts, setZoomAccounts] = useState<ZoomAccount[]>([])
+  const [zoomLoading, setZoomLoading] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const isAdmin = user?.role === "admin"
+
+  useEffect(() => {
+    if (isAdmin) {
+      fetchZoomAccounts()
+    }
+  }, [isAdmin])
+
+  async function fetchZoomAccounts() {
+    setZoomLoading(true)
+    try {
+      const res = await fetch("/api/admin/zoom-accounts")
+      if (res.ok) {
+        const json = await res.json()
+        setZoomAccounts(json.data || [])
+      }
+    } catch (e) {
+      console.error("Failed to fetch Zoom accounts:", e)
+    } finally {
+      setZoomLoading(false)
+    }
+  }
+
+  async function handleSyncZoom() {
+    setSyncing(true)
+    try {
+      const res = await fetch("/api/zoom/sync", { method: "POST" })
+      if (res.ok) {
+        const json = await res.json()
+        alert(`同期完了: ${json.data.newRecordings}件の新規録画を取得しました`)
+        await fetchZoomAccounts()
+      } else {
+        alert("同期に失敗しました")
+      }
+    } catch (e) {
+      console.error("Failed to sync:", e)
+      alert("同期中にエラーが発生しました")
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   const handleLogout = async () => {
     const supabase = createClient()
@@ -74,6 +126,70 @@ export default function SettingsPage() {
           <Button loading={saving}>保存</Button>
         </CardContent>
       </Card>
+
+      {/* Zoomアカウント管理（管理者のみ） */}
+      {isAdmin && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Video className="h-5 w-5" />
+                  Zoomアカウント管理
+                </CardTitle>
+                <CardDescription>
+                  録画取得用のZoomアカウントを管理します（{zoomAccounts.length}件）
+                </CardDescription>
+              </div>
+              <Button onClick={handleSyncZoom} disabled={syncing}>
+                {syncing ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                録画を同期
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {zoomLoading ? (
+              <div className="flex justify-center py-4">
+                <Loader2 className="h-6 w-6 animate-spin" />
+              </div>
+            ) : zoomAccounts.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                Zoomアカウントが登録されていません
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                {zoomAccounts.map((account) => (
+                  <div
+                    key={account.id}
+                    className="flex items-center justify-between p-3 border rounded-lg"
+                  >
+                    <div>
+                      <p className="font-medium text-sm">{account.display_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        ID: {account.zoom_account_id}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {account.last_synced_at && (
+                        <span className="text-xs text-muted-foreground">
+                          最終同期: {new Date(account.last_synced_at).toLocaleString("ja-JP")}
+                        </span>
+                      )}
+                      <Badge variant={account.is_active ? "default" : "secondary"}>
+                        {account.is_active ? "有効" : "無効"}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* 通知設定 */}
       <Card>
