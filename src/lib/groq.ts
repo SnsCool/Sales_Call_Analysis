@@ -1,8 +1,16 @@
 import Groq from "groq-sdk"
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-})
+// 遅延初期化でビルド時のエラーを回避
+let groqClient: Groq | null = null
+
+function getGroqClient(): Groq {
+  if (!groqClient) {
+    groqClient = new Groq({
+      apiKey: process.env.GROQ_API_KEY,
+    })
+  }
+  return groqClient
+}
 
 export interface TranscriptSegment {
   start: number  // ミリ秒
@@ -28,6 +36,7 @@ export async function transcribeAudio(
   const blob = new Blob([new Uint8Array(audioBuffer)], { type: "audio/mp4" })
   const file = new File([blob], filename, { type: "audio/mp4" })
 
+  const groq = getGroqClient()
   const transcription = await groq.audio.transcriptions.create({
     file: file,
     model: "whisper-large-v3",

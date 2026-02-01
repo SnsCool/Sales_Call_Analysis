@@ -1,8 +1,15 @@
-import { GoogleGenerativeAI } from "@google/generative-ai"
+import { GoogleGenerativeAI, GenerativeModel } from "@google/generative-ai"
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!)
+// 遅延初期化でビルド時のエラーを回避
+let geminiModel: GenerativeModel | null = null
 
-export const gemini = genAI.getGenerativeModel({ model: "gemini-3-flash" })
+function getGeminiModel(): GenerativeModel {
+  if (!geminiModel) {
+    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY || "")
+    geminiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" })
+  }
+  return geminiModel
+}
 
 export interface AnalysisResult {
   issues: {
@@ -56,6 +63,7 @@ ${transcriptText}
 
 JSONのみを出力してください。`
 
+  const gemini = getGeminiModel()
   const result = await gemini.generateContent(prompt)
   const response = result.response.text()
 
