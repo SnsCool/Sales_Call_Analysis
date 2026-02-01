@@ -55,7 +55,42 @@ export async function transcribeAudio(
     })
   }
 
-  return segments
+  // 話者分離（ヒューリスティックベース）
+  return assignSpeakers(segments)
+}
+
+/**
+ * シンプルな話者分離
+ * - 2秒以上の間隔がある場合は話者交代と推定
+ * - 営業（担当者）と顧客の2話者を想定
+ */
+function assignSpeakers(segments: TranscriptSegment[]): TranscriptSegment[] {
+  if (segments.length === 0) return segments
+
+  const SPEAKER_CHANGE_THRESHOLD_MS = 2000 // 2秒以上の間隔で話者交代
+  const speakers = ["担当者", "顧客"]
+  let currentSpeakerIndex = 0
+
+  const result: TranscriptSegment[] = []
+  let prevEnd = 0
+
+  for (const seg of segments) {
+    // 間隔をチェック
+    const gap = seg.start - prevEnd
+    if (gap >= SPEAKER_CHANGE_THRESHOLD_MS) {
+      // 話者交代
+      currentSpeakerIndex = (currentSpeakerIndex + 1) % speakers.length
+    }
+
+    result.push({
+      ...seg,
+      speaker: speakers[currentSpeakerIndex],
+    })
+
+    prevEnd = seg.end
+  }
+
+  return result
 }
 
 // URLから音声をダウンロードして文字起こし
