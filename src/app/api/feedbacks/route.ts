@@ -1,0 +1,71 @@
+import { NextRequest, NextResponse } from "next/server"
+import { createServerSupabaseClient } from "@/lib/supabase-server"
+import type { InsertTables } from "@/types/database"
+
+export async function GET() {
+  const supabase = await createServerSupabaseClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const { data, error } = await supabase
+    .from("feedbacks")
+    .select(`
+      *,
+      recordings(topic, start_time),
+      created_by_profile:profiles!feedbacks_created_by_fkey(full_name)
+    `)
+    .order("created_at", { ascending: false }) as { data: unknown; error: { message: string } | null }
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data })
+}
+
+export async function POST(request: NextRequest) {
+  const supabase = await createServerSupabaseClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  // 管理者チェック
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single() as { data: { role?: string } | null; error: unknown }
+
+  if (profile?.role !== "admin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  const body = await request.json()
+  const { recording_id, target_user_id, content, clip_start_ms, clip_end_ms } = body
+
+  const insertData: InsertTables<"feedbacks"> = {
+    recording_id,
+    target_user_id,
+    created_by: user.id,
+    content,
+    clip_start_ms,
+    clip_end_ms,
+  }
+
+  const { data, error } = await supabase
+    .from("feedbacks")
+    .insert(insertData as never)
+    .select()
+    .single() as { data: unknown; error: { message: string } | null }
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data }, { status: 201 })
+}
